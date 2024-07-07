@@ -1,0 +1,146 @@
+1.select distinct * from dim_customer  where customer='Atliq Exclusive'and region='APAC'
+2.WITH 
+cte1 AS (
+    SELECT COUNT(DISTINCT product_code) AS unique_products_2020 
+    FROM fact_sales_monthly  
+    WHERE fiscal_year = 2020
+),
+cte2 AS (
+    SELECT COUNT(DISTINCT product_code) AS unique_products_2021 
+    FROM fact_sales_monthly  
+    WHERE fiscal_year = 2021
+)
+SELECT 
+    cte1.unique_products_2020,
+    cte2.unique_products_2021,
+    round(((cte2.unique_products_2021 - cte1.unique_products_2020) / CAST(cte1.unique_products_2020 AS FLOAT)) * 100) AS percentage_chg
+FROM cte1
+CROSS JOIN cte2;
+3.
+SELECT segment,count(distinct product_code) as product_count 
+FROM gdb023.dim_product
+group by segment
+order by product_count desc
+
+4. 
+WITH
+cte1 AS (
+    SELECT 
+        dp.segment, 
+        COUNT(DISTINCT fs.product_code) AS product_count_2020
+    FROM 
+        gdb023.dim_product AS dp 
+    JOIN 
+        fact_sales_monthly fs 
+    ON 
+        dp.product_code = fs.product_code
+    WHERE 
+        fiscal_year = 2020
+    GROUP BY 
+        dp.segment
+    ORDER BY 
+        product_count_2020 DESC
+),
+cte2 AS ( 
+    SELECT 
+        dp.segment, 
+        COUNT(DISTINCT fs.product_code) AS product_count_2021
+    FROM 
+        gdb023.dim_product AS dp 
+    JOIN 
+        fact_sales_monthly fs 
+    ON 
+        dp.product_code = fs.product_code
+    WHERE 
+        fiscal_year = 2021
+    GROUP BY 
+        dp.segment
+    ORDER BY 
+        product_count_2021 DESC
+)
+SELECT 
+    cte1.segment, 
+    cte1.product_count_2020, 
+    cte2.product_count_2021, 
+    (cte2.product_count_2021 - cte1.product_count_2020) AS difference  
+FROM 
+    cte1 
+JOIN 
+    cte2 
+ON 
+    cte1.segment = cte2.segment;
+5.
+SELECT 
+	m.product_code,
+    	p.product,
+    	m.manufacturing_cost
+FROM dim_product p
+INNER JOIN fact_manufacturing_cost m USING(product_code)
+WHERE manufacturing_cost = (SELECT MAX(manufacturing_cost) from fact_manufacturing_cost) 
+	  OR
+      manufacturing_cost = (SELECT MIN(manufacturing_cost) from fact_manufacturing_cost)
+ORDER BY 3 DESC;
+6. SELECT dp.customer,fd.customer_code,round(avg(fd.pre_invoice_discount_pct)*100,2) as average_discount_percentage
+from fact_pre_invoice_deductions as fd
+join dim_customer  dp using (customer_code)
+group by dp.customer,fd.customer_code 
+order by average_discount_percentage desc
+limit 5
+
+7.
+SELECT month(fs.date)as month_date,year(fs.date) as year_date,round(sum((gross_price*sold_quantity))/1000000,2) as gross_sales_amount FROM fact_gross_price as gp 
+join fact_sales_monthly  as fs using (product_code)
+inner join dim_customer ds on
+fs.customer_code=ds.customer_code
+group by month_date,year_date
+order by gross_sales_amount asc
+8.
+SELECT 
+	CASE
+		WHEN MONTH(date) IN (9,10,11) then 'Q1'
+		WHEN MONTH(date) IN (12,1,2) then 'Q2'
+		WHEN MONTH(date) IN (3,4,5) then 'Q3'
+		ELSE 'Q4'
+    	END AS Quarters,
+    	SUM(sold_quantity) AS total_sold_quantity
+FROM fact_sales_monthly
+WHERE fiscal_year = 2020
+GROUP BY 1
+ORDER BY 2 DESC;
+9.
+with
+CTE as
+(SELECT dc.channel,round(sum(gross_price*sold_quantity)/1000000,2) as gross_sales_mln FROM fact_sales_monthly as fm
+inner join fact_gross_price as fp
+on fm.product_code=fp.product_code
+inner join dim_customer dc on
+fm.customer_code=dc.customer_code
+where fp.fiscal_year=2021
+group by dc.channel
+order by gross_sales_mln desc)
+SELECT channel, gross_sales_mln,
+round(gross_sales_mln*100/sum(gross_sales_mln) over(),2) AS percentage
+from CTE
+group by channel,gross_sales_mln 
+10
+WITH CTE AS(
+SELECT 
+	p.division,
+    	s.product_code,
+    	p.product,
+    	SUM(s.sold_quantity) AS total_sold_quantity,
+    	DENSE_RANK() OVER(PARTITION BY division ORDER BY SUM(s.sold_quantity) DESC) AS rank_order 
+FROM dim_product p
+INNER JOIN fact_sales_monthly s USING(product_code)
+WHERE fiscal_year = 2021 
+GROUP BY 1,2,3 
+ORDER BY 4 DESC
+)
+SELECT 
+    	division,
+    	product_code,
+    	product,
+    	total_sold_quantity,
+	rank_order 
+FROM CTE
+WHERE rank_order IN (1,2,3);
